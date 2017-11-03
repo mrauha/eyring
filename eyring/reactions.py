@@ -237,8 +237,8 @@ def diagram(G, source, target, names=None, relative_energies=None,
         transition_x_ranges = zip(transition_x,
                                   transition_x + transition_width)
 
-        above_step = np.array([-.5, 2.]) * step_width
-        below_step = np.array([0., -4.]) * step_width
+        above_step = np.array([-.1, 2.]) * step_width
+        below_step = np.array([-.1, -5.]) * step_width
         for i, (xx, yy) in enumerate(zip(step_x_ranges, step_y_ranges)):
             plt.plot(xx, yy, step_pattern)
 
