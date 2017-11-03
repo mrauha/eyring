@@ -42,9 +42,9 @@ install_requires = [
 
 setup(
     name='eyring',
-    version='0.1',
+    version='0.1.1',
     url='https://github.com/dudektria/eyring',
-    download_url='https://github.com/dudektria/eyring/archive/0.1.tar.gz',
+    download_url='https://github.com/dudektria/eyring/archive/0.1.1.tar.gz',
     author='Felipe Silveira de Souza Schneider',
     author_email='schneider.felipe@posgrad.ufsc.br',
     license='MIT',
