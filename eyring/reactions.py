@@ -139,7 +139,7 @@ def mechanism(steps, G=None):
     return G
 
 
-def diagram(G, source, target, relative_energies=None,
+def diagram(G, source, target, names=None, relative_energies=None,
             energy_conversion=kcalpermol, diagram_width=None,
             step_width=1., transition_width=None, step_pattern="k-",
             transition_pattern="k--", color=None):
@@ -158,6 +158,8 @@ def diagram(G, source, target, relative_energies=None,
         Node name representing the reactant step.
     target : str
         Node name representing the product step.
+    names : dict, optional
+        A dict from log file names to names to show in the diagram.
     relative_energies : None, bool or str, optional
         If `True`, only relative energies will be used. If a string is given,
         it will represent a the name of a node whose energy will be subtracted
@@ -241,7 +243,10 @@ def diagram(G, source, target, relative_energies=None,
             plt.plot(xx, yy, step_pattern)
 
             pos = np.array([np.average(xx), np.average(yy)])
-            plt.annotate(path[i], pos + above_step)
+            if names is not None and path[i] in names:
+                plt.annotate(names[path[i]], pos + above_step)
+            else:
+                plt.annotate(path[i], pos + above_step)
             plt.annotate("{:.2f}".format(path_freeenergies[i]),
                          pos + below_step)
 
