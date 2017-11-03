@@ -141,7 +141,8 @@ def mechanism(steps, G=None):
 
 
 def diagram(G, source, target, names=None, relative_energies=None,
-            energy_conversion=kcalpermol, diagram_width=None,
+            energy_conversion=kcalpermol,
+            energy_units=r"kcal$\cdot$mol$^{-1}$", diagram_width=None,
             step_width=1., transition_width=None, step_pattern="k-",
             transition_pattern="k--", color=None):
     """
@@ -169,6 +170,9 @@ def diagram(G, source, target, names=None, relative_energies=None,
     energy_conversion : float, optional
         Multiplicative energy conversion to be applied. Default conversion is
         from hartree to kcal/mol.
+    energy_units : str, optional
+        Units of energy. It is used to properly set the y-axis and defaults to
+        "kcal/mol". This parameter is related to energy_conversion above.
     diagram_width, step_width, transition_width : float, optional
         These parameters control the dimensions of steps, transitions and the
         final diagram. Both `step_width` and `transition_width` are equal to
@@ -238,8 +242,8 @@ def diagram(G, source, target, names=None, relative_energies=None,
         transition_x_ranges = zip(transition_x,
                                   transition_x + transition_width)
 
-        above_step = np.array([-.63e-3,  .20])
-        below_step = np.array([-.43e-2, -.55])
+        above_step = np.array([-.43e-2,  .20])
+        below_step = np.array([-.63e-3, -.60])
 
         above_step *= step_width * mpl.rcParams["font.size"]
         below_step *= step_width * mpl.rcParams["font.size"]
@@ -251,15 +255,15 @@ def diagram(G, source, target, names=None, relative_energies=None,
             if names is not None and path[i] in names:
                 note = names[path[i]]
                 adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + above_step * adjust)
+                plt.annotate(note, pos + below_step * adjust)
             else:
                 note = path[i]
                 adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + above_step * adjust)
+                plt.annotate(note, pos + below_step * adjust)
 
             note = "{:.2f}".format(path_freeenergies[i])
             adjust = np.array([len(note), 1.])
-            plt.annotate(note, pos + below_step * adjust)
+            plt.annotate(note, pos + above_step * adjust)
 
         for xx, yy in zip(transition_x_ranges, transition_y_ranges):
             plt.plot(xx, yy, transition_pattern)
@@ -272,5 +276,10 @@ def diagram(G, source, target, names=None, relative_energies=None,
         max_freeenergy = _max_freeenergy
 
     scale = max_freeenergy - min_freeenergy
-    pscale = .1
+    pscale = .9e-2
+    pscale *= step_width * mpl.rcParams["font.size"]
+
     plt.ylim(min_freeenergy - pscale * scale, max_freeenergy + pscale * scale)
+    plt.ylabel(r"$\Delta G$ / {:s}".format(energy_units))
+    plt.xlabel(r"Reaction coordinate")
+    plt.xticks([])
