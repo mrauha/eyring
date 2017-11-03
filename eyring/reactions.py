@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import cclib as cc
@@ -237,18 +238,28 @@ def diagram(G, source, target, names=None, relative_energies=None,
         transition_x_ranges = zip(transition_x,
                                   transition_x + transition_width)
 
-        above_step = np.array([-.1, 2.]) * step_width
-        below_step = np.array([-.1, -5.]) * step_width
+        above_step = np.array([-.63e-3,  .20])
+        below_step = np.array([-.43e-2, -.55])
+
+        above_step *= step_width * mpl.rcParams["font.size"]
+        below_step *= step_width * mpl.rcParams["font.size"]
+
         for i, (xx, yy) in enumerate(zip(step_x_ranges, step_y_ranges)):
             plt.plot(xx, yy, step_pattern)
-
             pos = np.array([np.average(xx), np.average(yy)])
+
             if names is not None and path[i] in names:
-                plt.annotate(names[path[i]], pos + above_step)
+                note = names[path[i]]
+                adjust = np.array([len(note), 1.])
+                plt.annotate(note, pos + above_step * adjust)
             else:
-                plt.annotate(path[i], pos + above_step)
-            plt.annotate("{:.2f}".format(path_freeenergies[i]),
-                         pos + below_step)
+                note = path[i]
+                adjust = np.array([len(note), 1.])
+                plt.annotate(note, pos + above_step * adjust)
+
+            note = "{:.2f}".format(path_freeenergies[i])
+            adjust = np.array([len(note), 1.])
+            plt.annotate(note, pos + below_step * adjust)
 
         for xx, yy in zip(transition_x_ranges, transition_y_ranges):
             plt.plot(xx, yy, transition_pattern)
