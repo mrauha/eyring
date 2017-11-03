@@ -1,10 +1,10 @@
-from distutils.core import setup
+from setuptools import setup
 
-"""eyring: automated analysis of reaction mechanisms from quantum chemistry
+doclines = """eyring: automated analysis of reaction mechanisms from quantum chemistry
 
 eyring is a Python library that provides automated analysis of reaction
 mechanisms from computational chemistry log files.
-"""
+""".split("\n")
 
 # Chosen from http://www.python.org/pypi?:action=list_classifiers
 classifiers = """Development Status :: 3 - Alpha
@@ -31,8 +31,6 @@ keywords = [
 packages = [
     'eyring',
 ]
-
-doclines = __doc__.split("\n")
 
 install_requires = [
     'numpy',
