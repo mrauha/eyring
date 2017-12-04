@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from setuptools import setup
 
+version = '0.2.1'
+
 doclines = """eyring: automated analysis of reaction mechanisms from quantum chemistry
 
 eyring is a Python library that provides automated analysis of reaction
@@ -44,9 +46,9 @@ install_requires = [
 
 setup(
     name='eyring',
-    version='0.2',
+    version=version,
     url='https://github.com/dudektria/eyring',
-    download_url='https://github.com/dudektria/eyring/archive/0.1.1.tar.gz',
+    download_url='https://github.com/dudektria/eyring/archive/{:s}.tar.gz'.format(version),
     author='Felipe Silveira de Souza Schneider',
     author_email='schneider.felipe@posgrad.ufsc.br',
     license='MIT',
