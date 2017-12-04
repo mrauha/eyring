@@ -5,6 +5,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import cclib as cc
+import re
 
 from scipy.constants import physical_constants, Avogadro, Boltzmann, Planck, \
     gas_constant, calorie, kilo
@@ -348,7 +349,7 @@ def diagram(G, source, target, names=None, relative_energies=None,
             energy_conversion=kcalpermol,
             energy_units=r"kcal$\cdot$mol$^{-1}$", diagram_width=None,
             step_width=1., transition_width=None, step_pattern="k-",
-            transition_pattern="k--", color=None):
+            transition_pattern="k--", color=None, annotate=True):
     """
     Draw a reaction diagram from `source` to `target` as a diagram using
     `matplotlib`.
@@ -390,6 +391,13 @@ def diagram(G, source, target, names=None, relative_energies=None,
         Single character representing colour as understandable by `matplotlib`.
         If set, it overwrites the first character of both `step_pattern` and
         `transition_pattern`.
+    annotate : bool, optional
+        Whether diagram should be annotated or not. It will be annotated by
+        default.
+
+    See Also
+    --------
+    mechanism : Represent reaction mechanisms as multiedged digraphs
     """
 
     freeenergies_dict = nx.get_node_attributes(G, "freeenergy")
@@ -449,9 +457,9 @@ def diagram(G, source, target, names=None, relative_energies=None,
         transition_x_ranges = zip(transition_x,
                                   transition_x + transition_width)
 
-        above_step = np.array([-.43e-2,  .20])
-        below_step = np.array([-.63e-3, -.60])
-        side_step = np.array([.63e-3, -.10])
+        above_step = np.array([-.3, .3])
+        below_step = np.array([-.3, -1.])
+        side_step = np.array([.1, -.5])
 
         above_step *= step_width * mpl.rcParams["font.size"]
         below_step *= step_width * mpl.rcParams["font.size"]
@@ -459,34 +467,53 @@ def diagram(G, source, target, names=None, relative_energies=None,
 
         for i, (xx, yy) in enumerate(zip(step_x_ranges, step_y_ranges)):
             plt.plot(xx, yy, step_pattern)
-            pos = np.array([np.average(xx), np.average(yy)])
 
-            if names is not None and path[i] in names:
-                note = names[path[i]]
-                adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + below_step * adjust)
-            else:
-                note = path[i]
-                adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + below_step * adjust)
+            if annotate:
+                pos = np.array([np.average(xx), np.average(yy)])
 
-            note = "{:.2f}".format(path_freeenergies[i])
-            adjust = np.array([len(note), 1.])
-            plt.annotate(note, pos + above_step * adjust)
+                if names is not None and path[i] in names:
+                    note = names[path[i]]
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=below_step * adjust,
+                                 textcoords="offset points")
+                else:
+                    note = path[i]
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=below_step * adjust,
+                                 textcoords="offset points")
+
+                note = "{:.2f}".format(path_freeenergies[i])
+                note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                adjust = np.array([note_length, 1.])
+                plt.annotate(note, xy=pos,
+                             xytext=above_step * adjust,
+                             textcoords="offset points")
 
         for i, (xx, yy) in enumerate(zip(transition_x_ranges,
                                          transition_y_ranges)):
             plt.plot(xx, yy, transition_pattern)
-            pos = np.array([np.average(xx), np.average(yy)])
 
-            if "k" in G.edges[transitions[i]]:
-                note = "k={:.2g}".format(G.edges[transitions[i]]["k"])
-                adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + side_step * adjust)
-            elif "K" in G.edges[transitions[i]]:
-                note = "K={:.2g}".format(G.edges[transitions[i]]["K"])
-                adjust = np.array([len(note), 1.])
-                plt.annotate(note, pos + side_step * adjust)
+            if annotate:
+                pos = np.array([np.average(xx), np.average(yy)])
+
+                if "k" in G.edges[transitions[i]]:
+                    note = "k={:.2g}".format(G.edges[transitions[i]]["k"])
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=side_step * adjust,
+                                 textcoords="offset points")
+                elif "K" in G.edges[transitions[i]]:
+                    note = "K={:.2g}".format(G.edges[transitions[i]]["K"])
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=side_step * adjust,
+                                 textcoords="offset points")
 
     axes = plt.gca()
     _min_freeenergy, _max_freeenergy = axes.get_ylim()
@@ -496,7 +523,7 @@ def diagram(G, source, target, names=None, relative_energies=None,
         max_freeenergy = _max_freeenergy
 
     scale = max_freeenergy - min_freeenergy
-    pscale = .9e-2
+    pscale = 3.e-3
     pscale *= step_width * mpl.rcParams["font.size"]
 
     plt.ylim(min_freeenergy - pscale * scale, max_freeenergy + pscale * scale)
