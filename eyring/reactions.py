@@ -300,6 +300,46 @@ def mechanism(steps, G=None, temperature=298.15, pressure=1e5,
     return G
 
 
+def show_mechanisms(G, names={}):
+    """
+    Print textual information about a multiedged digraph that describes
+    reaction mechanisms.
+
+    Parameters
+    ----------
+    G : networkx.DiGraph
+        A multiedged digraph that describes the mechanism, as returned from
+        `mechanism`.
+    names : dict, optional
+        A dict from log file names to names to show.
+    """
+    print("""
+          Chemicals:
+          ----------
+          """)
+    for n, data in G.nodes(data=True):
+        print("""
+              {:s} :
+                {:}
+              """.format(names.get(n, n),
+                         data)
+              )
+
+    print("""
+          Transitions:
+          ------------
+          """)
+    for e in G.edges:
+        print("""
+              {:s}
+                → {:s} :
+                  {:}
+              """.format(names.get(e[0], e[0]),
+                         names.get(e[1], e[1]),
+                         G.get_edge_data(e[0], e[1]))
+              )
+
+
 def diagram(G, source, target, names=None, relative_energies=None,
             energy_conversion=kcalpermol,
             energy_units=r"kcal$\cdot$mol$^{-1}$", diagram_width=None,
