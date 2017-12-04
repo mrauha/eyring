@@ -34,8 +34,12 @@ def _free_energy_comps(output):
         values represent other structures in the potential energy surface.
     """
 
-    d = cc.parser.ccopen(output)
-    m = d.parse()
+    try:
+        d = cc.parser.ccopen(output)
+        m = d.parse()
+    except AttributeError as e:
+        raise IOError("could not properly read output file {:s}: {:}".format(
+            output, e))
 
     nimagfreqs = len(m.vibfreqs[m.vibfreqs < 0])
 
