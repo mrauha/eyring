@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 from setuptools import setup
 
 doclines = """eyring: automated analysis of reaction mechanisms from quantum chemistry
@@ -42,9 +44,9 @@ install_requires = [
 
 setup(
     name='eyring',
-    version='0.1',
+    version='0.2',
     url='https://github.com/dudektria/eyring',
-    download_url='https://github.com/dudektria/eyring/archive/0.1.tar.gz',
+    download_url='https://github.com/dudektria/eyring/archive/0.1.1.tar.gz',
     author='Felipe Silveira de Souza Schneider',
     author_email='schneider.felipe@posgrad.ufsc.br',
     license='MIT',

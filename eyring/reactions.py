@@ -1,11 +1,17 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import cclib as cc
+import re
 
-from scipy.constants import physical_constants, Avogadro, calorie, kilo
+from scipy.constants import physical_constants, Avogadro, Boltzmann, Planck, \
+    gas_constant, calorie, kilo
 hartree, _, _ = physical_constants["Hartree energy"]
-kcalpermol = hartree * Avogadro / (calorie * kilo)
+joulespermol = hartree * Avogadro
+kcalpermol = joulespermol / (calorie * kilo)
 
 
 def _free_energy_comps(output):
@@ -23,12 +29,22 @@ def _free_energy_comps(output):
     freeenergy, enthalpy, entropy : float
         A tuple of (absolute) free energy (G), enthalpy (H) and entropy (S) in
         hartree/particle, such that G = H - T * S.
+    nimagfreqs : int
+        The number of imaginary frequencies presented by the calculation. Zero
+        means a minimum energy structure, one means a transition state. Larger
+        values represent other structures in the potential energy surface.
     """
 
-    d = cc.parser.ccopen(output)
-    m = d.parse()
+    try:
+        d = cc.parser.ccopen(output)
+        m = d.parse()
+    except AttributeError as e:
+        raise IOError("could not properly read output file {:s}: {:}".format(
+            output, e))
 
-    return m.freeenergy, m.enthalpy, m.entropy
+    nimagfreqs = len(m.vibfreqs[m.vibfreqs < 0])
+
+    return m.freeenergy, m.enthalpy, m.entropy, nimagfreqs
 
 
 def _parse_step(step):
@@ -51,39 +67,164 @@ def _parse_step(step):
         A convenient name for the step. It is taken as the file name (for when
         isomers are given) or a concatenation of file names such as
         "filename1+filename2" (for multimolecular reactions mechanisms).
+    molecularity : int
+        The molecularity of the reaction step, defined as the number of quantum
+        chemistry log files that are taken into account in this reaction step.
+    nimagfreqs : int
+        The number of imaginary frequencies presented by the calculation. Zero
+        means a minimum energy structure, one means a transition state. Larger
+        values represent other structures in the potential energy surface.
     """
 
     freeenergy, enthalpy, entropy = 0., 0., 0.
     name = ""
+    molecularity = 0
+    nimagfreqs = -1
 
     if isinstance(step, str):
-        freeenergy, enthalpy, entropy = _free_energy_comps(step)
+        freeenergy, enthalpy, entropy, nimagfreqs = _free_energy_comps(step)
         name = step
+        molecularity = 1
     elif isinstance(step, list):
         for isomer in step:
-            _freeenergy, _enthalpy, _entropy, _name = _parse_step(isomer)
+            _freeenergy, _enthalpy, _entropy, _name, _molecularity, \
+                _nimagfreqs = _parse_step(isomer)
 
             if freeenergy > _freeenergy:
                 freeenergy = _freeenergy
                 enthalpy, entropy = _enthalpy, _entropy
                 name = _name
+                molecularity = _molecularity
+                nimagfreqs = _nimagfreqs
     elif isinstance(step, tuple):
+        nimagfreqs += 1
+
         for molecule in step:
-            _freeenergy, _enthalpy, _entropy, _name = _parse_step(molecule)
+            _freeenergy, _enthalpy, _entropy, _name, _molecularity, \
+                _nimagfreqs = _parse_step(molecule)
 
             freeenergy += _freeenergy
             enthalpy += _enthalpy
             entropy += _entropy
             name = "{:s}+{:s}".format(name, _name)
+            molecularity += _molecularity
+            nimagfreqs += _nimagfreqs
 
         name = name[1:]
     else:
         raise TypeError("step type should be str, list or tuple")
 
-    return freeenergy, enthalpy, entropy, name
+    return freeenergy, enthalpy, entropy, name, molecularity, nimagfreqs
 
 
-def mechanism(steps, G=None):
+def equilibrium_constant(barrier, temperature):
+    """
+    Calculate the constant for a chemical equilibrium:
+
+    $$K = \exp{- \frac{\Delta G^\circ}{R T}}$$
+
+    where $K$ is the equilibrium constant, $\Delta G^\circ$ is the reaction
+    free energy, $T$ is the absolute temperature and $R$ is the gas constant.
+    """
+    return np.exp(-joulespermol * barrier/(gas_constant * temperature))
+
+
+def _rate_constant_eyring(barrier, molecularity, temperature, pressure,
+                          concentration):
+    """
+    Calculate the reaction rate constant for a chemical process according to
+    the Eyring-Evans-Polanyi equation:
+
+    $$k = \frac{k_B T}{h c_0} \exp{- \frac{\Delta G^\neq}{R T}}$$
+
+    where $k$ is the reaction rate constant, $\Delta G^\neq$ is the Gibbs
+    energy of activation, $c_0$ is the concentration of the reactant, $k_B$ is
+    Boltzmann's constant, $h$ is Planck's constant, $T$ is the absolute
+    temperature and $R$ is the gas constant.
+
+    For information on the use of this equation, see for example
+    <http://gaussian.com/thermo/>.
+
+    Parameters
+    ----------
+    barrier : float
+        Gibbs energy of activation ($\Delta G^\neq$) for the chemical process,
+        in hartree/particle.
+    molecularity : int
+        The molecularity of the reaction step, defined as the number of quantum
+        chemistry log files that are taken into account in this reaction step.
+        The use of this value has not been implemented yet.
+    temperature : float
+        Absolute temperature at which reaction rate constant should be
+        calculated.
+    pressure : float
+        Pressure used to calculate `concentration`, assuming ideal gas
+        behaviour. This is ignored if `concentration` is given (see below).
+    concentration : float
+        Concentration of the reactant in mol/m^3. If given, this is used in
+        favour of `pressure` (see above), which is then ignored.
+
+    Returns
+    -------
+    float
+        Reaction rate constant for the particular process according to the
+        Eyring-Evans-Polanyi equation. Units are in [m^3/mol]^(n - 1)/s, where
+        n is the reaction step molecularity.
+    """
+
+    if concentration is None:
+        concentration = pressure / (gas_constant * temperature)
+
+    pre_factor = Boltzmann * temperature / (Planck * concentration)
+    rate = pre_factor * equilibrium_constant(barrier, temperature)
+
+    return rate
+
+
+def rate_constant(barrier, molecularity=1, temperature=298.15, pressure=1e5,
+                  concentration=None, method="eyring"):
+    """
+    Calculate the reaction rate constant for a chemical process.
+
+    Parameters
+    ----------
+    barrier : float
+        Gibbs energy of activation ($\Delta G^\neq$) for the chemical process,
+        in hartree/particle.
+    molecularity : int, optional
+        The molecularity of the reaction step, defined as the number of quantum
+        chemistry log files that are taken into account in this reaction step.
+        The use of this value has not been implemented yet.
+    temperature : float, optional
+        Absolute temperature at which reaction rate constant should be
+        calculated.
+    pressure : float, optional
+        Pressure used to calculate `concentration`, assuming ideal gas
+        behaviour. This is ignored if `concentration` is given (see below).
+    concentration : float, optional
+        Concentration of the reactant in mol/m^3. If given, this is used in
+        favour of `pressure` (see above), which is then ignored.
+    method : {"eyring"}, optional
+        Equation used for the calculation of the reaction rate constant.
+
+    Returns
+    -------
+    float
+        Reaction rate constant for the particular process. Units are in
+        [m^3/mol]^(n - 1)/s, where n is the reaction step molecularity.
+    """
+
+    if method == "eyring":
+        rate = _rate_constant_eyring(barrier, molecularity, temperature,
+                                     pressure, concentration)
+    else:
+        raise ValueError("unknown equation {:s}".format(method))
+
+    return rate
+
+
+def mechanism(steps, G=None, temperature=298.15, pressure=1e5,
+              concentration=None, method="eyring"):
     """
     Describe a reaction mechanism as a multiedged digraph representation. It
     reads from a set of quantum chemistry calculations as given as output file
@@ -104,6 +245,17 @@ def mechanism(steps, G=None):
     G : networkx.DiGraph, optional
         If given, the reaction mechanism description will be written in `G`
         and. In this case, an updated version of `G` will be returned.
+    temperature : float, optional
+        Absolute temperature at which reaction rate constants should be
+        calculated.
+    pressure : float, optional
+        Pressure used to calculate `concentration`s, assuming ideal gas
+        behaviour. This is ignored if `concentration` is given (see below).
+    concentration : float, optional
+        Concentration of each reactant in mol/m^3. If given, this is used in
+        favour of `pressure` (see above), which is then ignored.
+    method : {"eyring"}, optional
+        Equation used for the calculation of the reaction rate constants.
 
     Returns
     -------
@@ -125,24 +277,79 @@ def mechanism(steps, G=None):
         G = nx.DiGraph()
 
     last_name = None
+    last_freeenergy = None
+    last_nimagfreqs = None
     for step in steps:
-        freeenergy, enthalpy, entropy, name = _parse_step(step)
+        freeenergy, enthalpy, entropy, name, molecularity, nimagfreqs = \
+            _parse_step(step)
 
         G.add_node(name, freeenergy=freeenergy, enthalpy=enthalpy,
                    entropy=entropy)
 
         if last_name is not None:
-            G.add_edge(last_name, name)
+            barrier = freeenergy - last_freeenergy
+            if nimagfreqs == 1 and last_nimagfreqs == 0:
+                k = rate_constant(barrier, molecularity, temperature, pressure,
+                                  concentration, method)
+                G.add_edge(last_name, name, k=k)
+            elif nimagfreqs == 0 and last_nimagfreqs == 0:
+                K = equilibrium_constant(barrier, temperature)
+                G.add_edge(last_name, name, K=K)
+            else:
+                G.add_edge(last_name, name)
 
         last_name = name
+        last_freeenergy = freeenergy
+        last_nimagfreqs = nimagfreqs
 
     return G
 
 
-def diagram(G, source, target, relative_energies=None,
-            energy_conversion=kcalpermol, diagram_width=None,
+def show_mechanisms(G, names={}):
+    """
+    Print textual information about a multiedged digraph that describes
+    reaction mechanisms.
+
+    Parameters
+    ----------
+    G : networkx.DiGraph
+        A multiedged digraph that describes the mechanism, as returned from
+        `mechanism`.
+    names : dict, optional
+        A dict from log file names to names to show.
+    """
+    print("""
+          Chemicals:
+          ----------
+          """)
+    for n, data in G.nodes(data=True):
+        print("""
+              {:s} :
+                {:}
+              """.format(names.get(n, n),
+                         data)
+              )
+
+    print("""
+          Transitions:
+          ------------
+          """)
+    for e in G.edges:
+        print("""
+              {:s}
+                → {:s} :
+                  {:}
+              """.format(names.get(e[0], e[0]),
+                         names.get(e[1], e[1]),
+                         G.get_edge_data(e[0], e[1]))
+              )
+
+
+def diagram(G, source, target, names=None, relative_energies=None,
+            energy_conversion=kcalpermol,
+            energy_units=r"kcal$\cdot$mol$^{-1}$", diagram_width=None,
             step_width=1., transition_width=None, step_pattern="k-",
-            transition_pattern="k--", color=None):
+            transition_pattern="k--", color=None, annotate=True):
     """
     Draw a reaction diagram from `source` to `target` as a diagram using
     `matplotlib`.
@@ -158,6 +365,8 @@ def diagram(G, source, target, relative_energies=None,
         Node name representing the reactant step.
     target : str
         Node name representing the product step.
+    names : dict, optional
+        A dict from log file names to names to show in the diagram.
     relative_energies : None, bool or str, optional
         If `True`, only relative energies will be used. If a string is given,
         it will represent a the name of a node whose energy will be subtracted
@@ -166,6 +375,9 @@ def diagram(G, source, target, relative_energies=None,
     energy_conversion : float, optional
         Multiplicative energy conversion to be applied. Default conversion is
         from hartree to kcal/mol.
+    energy_units : str, optional
+        Units of energy. It is used to properly set the y-axis and defaults to
+        "kcal/mol". This parameter is related to energy_conversion above.
     diagram_width, step_width, transition_width : float, optional
         These parameters control the dimensions of steps, transitions and the
         final diagram. Both `step_width` and `transition_width` are equal to
@@ -179,18 +391,28 @@ def diagram(G, source, target, relative_energies=None,
         Single character representing colour as understandable by `matplotlib`.
         If set, it overwrites the first character of both `step_pattern` and
         `transition_pattern`.
+    annotate : bool, optional
+        Whether diagram should be annotated or not. It will be annotated by
+        default.
+
+    See Also
+    --------
+    mechanism : Represent reaction mechanisms as multiedged digraphs
     """
 
     freeenergies_dict = nx.get_node_attributes(G, "freeenergy")
     max_freeenergy = -np.inf
     min_freeenergy = np.inf
 
-    for path in nx.all_simple_paths(G, source, target):
+    all_simple_paths = nx.all_simple_paths(G, source, target)
+    for path in all_simple_paths:
         path_freeenergies = []
         for step in path:
             path_freeenergies.append(freeenergies_dict[step])
 
         path_freeenergies = np.array(path_freeenergies)
+
+        transitions = list(zip(path[:-1], path[1:]))
 
         if relative_energies is None:
             relative_energies = source
@@ -235,18 +457,63 @@ def diagram(G, source, target, relative_energies=None,
         transition_x_ranges = zip(transition_x,
                                   transition_x + transition_width)
 
-        above_step = np.array([-.5, 2.]) * step_width
-        below_step = np.array([0., -4.]) * step_width
+        above_step = np.array([-.3, .3])
+        below_step = np.array([-.3, -1.])
+        side_step = np.array([.1, -.5])
+
+        above_step *= step_width * mpl.rcParams["font.size"]
+        below_step *= step_width * mpl.rcParams["font.size"]
+        side_step *= step_width * mpl.rcParams["font.size"]
+
         for i, (xx, yy) in enumerate(zip(step_x_ranges, step_y_ranges)):
             plt.plot(xx, yy, step_pattern)
 
-            pos = np.array([np.average(xx), np.average(yy)])
-            plt.annotate(path[i], pos + above_step)
-            plt.annotate("{:.2f}".format(path_freeenergies[i]),
-                         pos + below_step)
+            if annotate:
+                pos = np.array([np.average(xx), np.average(yy)])
 
-        for xx, yy in zip(transition_x_ranges, transition_y_ranges):
+                if names is not None and path[i] in names:
+                    note = names[path[i]]
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=below_step * adjust,
+                                 textcoords="offset points")
+                else:
+                    note = path[i]
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=below_step * adjust,
+                                 textcoords="offset points")
+
+                note = "{:.2f}".format(path_freeenergies[i])
+                note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                adjust = np.array([note_length, 1.])
+                plt.annotate(note, xy=pos,
+                             xytext=above_step * adjust,
+                             textcoords="offset points")
+
+        for i, (xx, yy) in enumerate(zip(transition_x_ranges,
+                                         transition_y_ranges)):
             plt.plot(xx, yy, transition_pattern)
+
+            if annotate:
+                pos = np.array([np.average(xx), np.average(yy)])
+
+                if "k" in G.edges[transitions[i]]:
+                    note = "k={:.2g}".format(G.edges[transitions[i]]["k"])
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=side_step * adjust,
+                                 textcoords="offset points")
+                elif "K" in G.edges[transitions[i]]:
+                    note = "K={:.2g}".format(G.edges[transitions[i]]["K"])
+                    note_length = len(re.sub('\$[^\$]+\$', 2*'x', note))
+                    adjust = np.array([note_length, 1.])
+                    plt.annotate(note, xy=pos,
+                                 xytext=side_step * adjust,
+                                 textcoords="offset points")
 
     axes = plt.gca()
     _min_freeenergy, _max_freeenergy = axes.get_ylim()
@@ -256,5 +523,10 @@ def diagram(G, source, target, relative_energies=None,
         max_freeenergy = _max_freeenergy
 
     scale = max_freeenergy - min_freeenergy
-    pscale = .1
+    pscale = 3.e-3
+    pscale *= step_width * mpl.rcParams["font.size"]
+
     plt.ylim(min_freeenergy - pscale * scale, max_freeenergy + pscale * scale)
+    plt.ylabel(r"$\Delta G$ / {:s}".format(energy_units))
+    plt.xlabel(r"Reaction coordinate")
+    plt.xticks([])
